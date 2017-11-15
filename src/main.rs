@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 
 #[derive(PartialEq, Debug)]
 enum Expr {
     Bool(bool),
     Num(i64),
-    Float(f64),
+    //Float(f64),
     Binop { op: String, l: Box<Expr>, r: Box<Expr> },
     If { c: Box<Expr>, t: Box<Expr>, f: Box<Expr> },
     Varref { name: String },
@@ -19,6 +20,7 @@ enum Value {
     //Float(f64),
 }
 
+type Env = HashMap<String, Value>;
 
 #[test]
 fn sample_ast() {
@@ -78,14 +80,16 @@ fn evalBinop(op: String, l: Value, r: Value) -> Value {
 
 
 // Interpret a UIRE expression
-fn interp(exp: Expr) -> Value {
+fn interp(exp: Expr, env: &Env) -> Value {
     match exp {
         Expr::Num(n) => Value::Num(n),
         Expr::Bool(b) => Value::Bool(b),
         //Expr::Float(f) => Value::Float(f),
         Expr::Binop{op,l,r} => evalBinop(op, (interp (*l)), (interp (*r))),
         Expr::If{c,t,f} => if (interp(*c) == Value::Bool(true)) { interp(*t)} else {interp(*f)},
-
+  	Expr::Varref{name} => match env.get(name) {
+		Some(val) => val,
+		None => Value::Num(-1)}
         // TODO
         _ => Value::Num(-1),
     }
@@ -93,9 +97,10 @@ fn interp(exp: Expr) -> Value {
 
 #[test]
 fn test_prims() {
-    assert_eq!(interp(Expr::Num(5)), Value::Num(5));
-    assert_eq!(interp(Expr::Bool(true)), Value::Bool(true));
+    assert_eq!(interp(Expr::Num(5), &(Env::new())), Value::Num(5));
+    assert_eq!(interp(Expr::Bool(true), &(Env::new())), Value::Bool(true));
    // assert_eq!(interp(Expr::Float(3.14)), Value::Float(3.14));
+
 }
 
 
@@ -116,11 +121,11 @@ fn test_serialize() {
     assert_eq!(serialize(interp(Expr::Binop{
                     op: String::from("*"),
                     l: Box::new(Expr::Num(20),),
-                    r: Box::new(Expr::Num(5)),})), "100");
+                    r: Box::new(Expr::Num(5)), }), &(Env::new())), "00");
     assert_eq!(serialize(interp(Expr::Binop{
                     op: String::from("+"),
                     l: Box::new(Expr::Num(11),),
-                    r: Box::new(Expr::Num(7)),})), "18");
+                    r: Box::new(Expr::Num(7)),}), &(Env::new())), "18");
 
     assert_eq!(serialize(interp(Expr::Binop{
                     op: String::from("-"),
