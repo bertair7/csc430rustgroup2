@@ -85,10 +85,10 @@ fn interp(exp: Expr, env: &Env) -> Value {
         Expr::Num(n) => Value::Num(n),
         Expr::Bool(b) => Value::Bool(b),
         //Expr::Float(f) => Value::Float(f),
-        Expr::Binop{op,l,r} => evalBinop(op, (interp (*l)), (interp (*r))),
-        Expr::If{c,t,f} => if (interp(*c) == Value::Bool(true)) { interp(*t)} else {interp(*f)},
-  	Expr::Varref{name} => match env.get(name) {
-		Some(val) => val,
+        Expr::Binop{op,l,r} => evalBinop(op, (interp (*l, env)), (interp (*r, env))),
+        Expr::If{c,t,f} => if (interp(*c, env) == Value::Bool(true)) { interp(*t, env)} else {interp(*f, env)},
+  	Expr::Varref{name} => match env.get(&name) {
+		Some(val) => *val,
 		None => Value::Num(-1)}
         // TODO
         _ => Value::Num(-1),
@@ -133,12 +133,12 @@ fn test_serialize() {
                     r: Box::new(Expr::Binop{
                         op: String::from("/"),
                         l: Box::new(Expr::Num(20),),
-                        r: Box::new(Expr::Num(4)),}),})), "6");
+                        r: Box::new(Expr::Num(4)),}),}, &(Env::new()))), "6");
 
      assert_eq!(serialize(interp(Expr::Binop{
                     op: String::from("<="),
                     l: Box::new(Expr::Num(200),),
-                    r: Box::new(Expr::Num(10)),})), "false");
+                    r: Box::new(Expr::Num(10)),}, &(Env::new()))), "false");
 
     assert_eq!(serialize(interp(Expr::If{
                     c: Box::new(Expr::Binop{
@@ -146,7 +146,7 @@ fn test_serialize() {
                         l: Box::new(Expr::Num(200),),
                         r: Box::new(Expr::Num(10)),}),
                     t: Box::new(Expr::Num(200),),
-                    f: Box::new(Expr::Num(10)),})), "10");
+                    f: Box::new(Expr::Num(10)),}, &(Env::new()))), "10");
 
     assert_eq!(serialize(interp(Expr::If{
                     c: Box::new(Expr::Binop{
@@ -157,18 +157,18 @@ fn test_serialize() {
                         op: String::from("/"),
                         l: Box::new(Expr::Num(20),),
                         r: Box::new(Expr::Num(4)),},),
-                    f: Box::new(Expr::Num(10)),})), "5");
+                    f: Box::new(Expr::Num(10)),}, &(Env::new()))), "5");
 
 }
 
 
 fn main() {
-    println!("{}", serialize(interp(Expr::Num(5))));
+    println!("{}", serialize(interp(Expr::Num(5), &(Env::new()))));
 
     let testBin : Expr = Expr::Binop{
                     op: String::from("+"),
                     l: Box::new(Expr::Num(100),),
                     r: Box::new(Expr::Num(5)),};
 
-    println!("{}", serialize(interp(testBin)));
+    println!("{}", serialize(interp(testBin, &(Env::new()))));
 }
