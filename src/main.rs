@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::clone::Clone;
 
 #[derive(PartialEq, Debug)]
 enum Expr {
@@ -12,8 +13,7 @@ enum Expr {
     Fundef { params: Vec<String>, body: Box<Expr> },
 }
 
-
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 enum Value {
     Bool(bool),
     Num(i64),
@@ -78,6 +78,10 @@ fn evalBinop(op: String, l: Value, r: Value) -> Value {
     }
 }
 
+// Extend environment with addition
+fn extend-env(env: &Env, s: &String, v: Value) -> &Env {
+    // TODO
+}
 
 // Interpret a UIRE expression
 fn interp(exp: Expr, env: &Env) -> Value {
@@ -88,9 +92,11 @@ fn interp(exp: Expr, env: &Env) -> Value {
         Expr::Binop{op,l,r} => evalBinop(op, (interp (*l, env)), (interp (*r, env))),
         Expr::If{c,t,f} => if (interp(*c, env) == Value::Bool(true)) { interp(*t, env)} else {interp(*f, env)},
   	Expr::Varref{name} => match env.get(&name) {
-		Some(val) => *val,
-		None => Value::Num(-1)}
-        // TODO
+		Some(val) => (*val).clone(),
+		None => Value::Num(-1),
+		}
+        // TODO - Fundef, App
+
         _ => Value::Num(-1),
     }
 }
