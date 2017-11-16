@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::clone::Clone;
+use std::result::Result;
 
 type Env = HashMap<String, Value>;
 
@@ -80,40 +81,41 @@ fn eval_binop(op: String, l: Value, r: Value) -> Value {
 }
 
 // Interpret a UIRE expression
-fn interp(exp: Expr, env: &Env) -> Value {
+fn interp(exp: Expr, env: &Env) -> Result<Value, &'static str> {
     match exp {
-        Expr::Num(n) => Value::Num(n),
-        Expr::Bool(b) => Value::Bool(b),
+        Expr::Num(n) => Ok(Value::Num(n)),
+        Expr::Bool(b) => Ok(Value::Bool(b)),
         //Expr::Float(f) => Value::Float(f),
-        Expr::Binop{op,l,r} => eval_binop(op, (interp (*l, env)), (interp (*r, env))),
-        Expr::If{c,t,f} => match interp(*c, env) {
+        Expr::Binop{op,l,r} =>
+            Ok(eval_binop(op, try!(interp(*l, env)), try!(interp(*r, env)))),
+        Expr::If{c,t,f} => match try!(interp(*c, env)) {
             Value::Bool(true) => interp(*t, env),
             Value::Bool(false) => interp(*f, env),
-            _ => Value::Num(-1),
+            _ => Err("If conditions must be booleans"),
         },
         Expr::Varref{name} => match env.get(&name) {
-            Some(val) => (*val).clone(),
-            None => Value::Num(-1),
+            Some(val) => Ok((*val).clone()),
+            None => Err("Undefined variable reference"),
         },
 
-        Expr::Fundef{params, body} => Value::Closure {
+        Expr::Fundef{params, body} => Ok(Value::Closure {
             params: params,
             body: (*body).clone(),
             env: env.clone(),
-        },
-        Expr::App{fun, args} => match interp(*fun, env) {
+        }),
+        Expr::App{fun, args} => match try!(interp(*fun, env)) {
             Value::Closure {params, body, env: c_env} => {
                 if args.len() != params.len() {
-                    return Value::Num(-1);
+                    return Err("Incorrect number of arguments");
                 }
                 let mut new_env = c_env.clone();
                 for i in 0..args.len() {
                     new_env.insert(params[i].clone(),
-                                   interp(args[i].clone(), env));
+                                   try!(interp(args[i].clone(), env)));
                 }
                 interp(body, &new_env)
             },
-            _ => Value::Num(-1),
+            _ => Err("Tried to call a non-function as a function"),
         },
 
     }
@@ -128,11 +130,12 @@ fn test_prims() {
 }
 
 
-fn serialize(val: Value) -> String {
+fn serialize(val: Result<Value, &'static str>) -> String {
     match val {
-        Value::Num(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        _ => String::from("#<procedure>"),
+        Ok(Value::Num(n)) => n.to_string(),
+        Ok(Value::Bool(b)) => b.to_string(),
+        Ok(_) => String::from("#<procedure>"),
+        Err(err) => format!("UIRE: {}", err),
     }
 }
 
@@ -195,4 +198,8 @@ fn main() {
         r: Box::new(Expr::Num(5)),};
 
     println!("{}", serialize(interp(test_bin, &(Env::new()))));
+
+    println!("{}", serialize(interp(Expr::Varref {
+        name: String::from("x"),
+    }, &Env::new())))
 }
