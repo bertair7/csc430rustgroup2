@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::clone::Clone;
 
-#[derive(PartialEq, Debug)]
+type Env = HashMap<String, Value>;
+
+#[derive(PartialEq, Debug, Clone)]
 enum Expr {
     Bool(bool),
     Num(i64),
@@ -17,10 +19,8 @@ enum Expr {
 enum Value {
     Bool(bool),
     Num(i64),
-    //Float(f64),
+    Closure { params: Vec<String>, body: Expr, env: Env },
 }
-
-type Env = HashMap<String, Value>;
 
 #[test]
 fn sample_ast() {
@@ -47,23 +47,24 @@ fn sample_ast() {
         }),
         args: vec!(Expr::Num(4)),
     };
+    assert_eq!(interp(prog, &Env::new()), Value::Bool(true));
 }
 
 
 
-fn evalBinop(op: String, l: Value, r: Value) -> Value {
+fn eval_binop(op: String, l: Value, r: Value) -> Value {
 
     let left =     
-    match l {
-        Value::Num(n) => n,
-        _ => 99999,
-    };
+        match l {
+            Value::Num(n) => n,
+            _ => 99999,
+        };
 
     let right =     
-    match r {
-        Value::Num(n) => n,
-        _ => 99999,
-    };
+        match r {
+            Value::Num(n) => n,
+            _ => 99999,
+        };
 
     // do something with the 99999 error
 
@@ -78,26 +79,43 @@ fn evalBinop(op: String, l: Value, r: Value) -> Value {
     }
 }
 
-// Extend environment with addition
-fn extend-env(env: &Env, s: &String, v: Value) -> &Env {
-    // TODO
-}
-
 // Interpret a UIRE expression
 fn interp(exp: Expr, env: &Env) -> Value {
     match exp {
         Expr::Num(n) => Value::Num(n),
         Expr::Bool(b) => Value::Bool(b),
         //Expr::Float(f) => Value::Float(f),
-        Expr::Binop{op,l,r} => evalBinop(op, (interp (*l, env)), (interp (*r, env))),
-        Expr::If{c,t,f} => if (interp(*c, env) == Value::Bool(true)) { interp(*t, env)} else {interp(*f, env)},
-  	Expr::Varref{name} => match env.get(&name) {
-		Some(val) => (*val).clone(),
-		None => Value::Num(-1),
-		}
-        // TODO - Fundef, App
+        Expr::Binop{op,l,r} => eval_binop(op, (interp (*l, env)), (interp (*r, env))),
+        Expr::If{c,t,f} => match interp(*c, env) {
+            Value::Bool(true) => interp(*t, env),
+            Value::Bool(false) => interp(*f, env),
+            _ => Value::Num(-1),
+        },
+        Expr::Varref{name} => match env.get(&name) {
+            Some(val) => (*val).clone(),
+            None => Value::Num(-1),
+        },
 
-        _ => Value::Num(-1),
+        Expr::Fundef{params, body} => Value::Closure {
+            params: params,
+            body: (*body).clone(),
+            env: env.clone(),
+        },
+        Expr::App{fun, args} => match interp(*fun, env) {
+            Value::Closure {params, body, env: c_env} => {
+                if args.len() != params.len() {
+                    return Value::Num(-1);
+                }
+                let mut new_env = c_env.clone();
+                for i in 0..args.len() {
+                    new_env.insert(params[i].clone(),
+                                   interp(args[i].clone(), env));
+                }
+                interp(body, &new_env)
+            },
+            _ => Value::Num(-1),
+        },
+
     }
 }
 
@@ -105,7 +123,7 @@ fn interp(exp: Expr, env: &Env) -> Value {
 fn test_prims() {
     assert_eq!(interp(Expr::Num(5), &(Env::new())), Value::Num(5));
     assert_eq!(interp(Expr::Bool(true), &(Env::new())), Value::Bool(true));
-   // assert_eq!(interp(Expr::Float(3.14)), Value::Float(3.14));
+    // assert_eq!(interp(Expr::Float(3.14)), Value::Float(3.14));
 
 }
 
@@ -114,56 +132,56 @@ fn serialize(val: Value) -> String {
     match val {
         Value::Num(n) => n.to_string(),
         Value::Bool(b) => b.to_string(),
-      //  Value::Float(f) => f.to_string(),
+        _ => String::from("#<procedure>"),
     }
 }
 
 #[test]
 fn test_serialize() {
     assert_eq!(serialize(Value::Num(-7)), "-7");
-  //  assert_eq!(serialize(Value::Float(1.1)), "1.1");
+    //  assert_eq!(serialize(Value::Float(1.1)), "1.1");
     assert_eq!(serialize(Value::Bool(true)), "true");
     assert_eq!(serialize(Value::Bool(false)), "false");
     assert_eq!(serialize(interp(Expr::Binop{
-                    op: String::from("*"),
-                    l: Box::new(Expr::Num(20),),
-                    r: Box::new(Expr::Num(5)), }), &(Env::new())), "00");
+        op: String::from("*"),
+        l: Box::new(Expr::Num(20),),
+        r: Box::new(Expr::Num(5)), }, &(Env::new()))), "100");
     assert_eq!(serialize(interp(Expr::Binop{
-                    op: String::from("+"),
-                    l: Box::new(Expr::Num(11),),
-                    r: Box::new(Expr::Num(7)),}), &(Env::new())), "18");
+        op: String::from("+"),
+        l: Box::new(Expr::Num(11),),
+        r: Box::new(Expr::Num(7)),}, &(Env::new()))), "18");
 
     assert_eq!(serialize(interp(Expr::Binop{
-                    op: String::from("-"),
-                    l: Box::new(Expr::Num(11),),
-                    r: Box::new(Expr::Binop{
-                        op: String::from("/"),
-                        l: Box::new(Expr::Num(20),),
-                        r: Box::new(Expr::Num(4)),}),}, &(Env::new()))), "6");
+        op: String::from("-"),
+        l: Box::new(Expr::Num(11),),
+        r: Box::new(Expr::Binop{
+            op: String::from("/"),
+            l: Box::new(Expr::Num(20),),
+            r: Box::new(Expr::Num(4)),}),}, &(Env::new()))), "6");
 
-     assert_eq!(serialize(interp(Expr::Binop{
-                    op: String::from("<="),
-                    l: Box::new(Expr::Num(200),),
-                    r: Box::new(Expr::Num(10)),}, &(Env::new()))), "false");
+    assert_eq!(serialize(interp(Expr::Binop{
+        op: String::from("<="),
+        l: Box::new(Expr::Num(200),),
+        r: Box::new(Expr::Num(10)),}, &(Env::new()))), "false");
 
     assert_eq!(serialize(interp(Expr::If{
-                    c: Box::new(Expr::Binop{
-                        op: String::from("<="),
-                        l: Box::new(Expr::Num(200),),
-                        r: Box::new(Expr::Num(10)),}),
-                    t: Box::new(Expr::Num(200),),
-                    f: Box::new(Expr::Num(10)),}, &(Env::new()))), "10");
+        c: Box::new(Expr::Binop{
+            op: String::from("<="),
+            l: Box::new(Expr::Num(200),),
+            r: Box::new(Expr::Num(10)),}),
+            t: Box::new(Expr::Num(200),),
+            f: Box::new(Expr::Num(10)),}, &(Env::new()))), "10");
 
     assert_eq!(serialize(interp(Expr::If{
-                    c: Box::new(Expr::Binop{
-                        op: String::from("<="),
-                        l: Box::new(Expr::Num(10),),
-                        r: Box::new(Expr::Num(100)),}),
-                    t: Box::new(Expr::Binop{
-                        op: String::from("/"),
-                        l: Box::new(Expr::Num(20),),
-                        r: Box::new(Expr::Num(4)),},),
-                    f: Box::new(Expr::Num(10)),}, &(Env::new()))), "5");
+        c: Box::new(Expr::Binop{
+            op: String::from("<="),
+            l: Box::new(Expr::Num(10),),
+            r: Box::new(Expr::Num(100)),}),
+            t: Box::new(Expr::Binop{
+                op: String::from("/"),
+                l: Box::new(Expr::Num(20),),
+                r: Box::new(Expr::Num(4)),},),
+                f: Box::new(Expr::Num(10)),}, &(Env::new()))), "5");
 
 }
 
@@ -171,10 +189,10 @@ fn test_serialize() {
 fn main() {
     println!("{}", serialize(interp(Expr::Num(5), &(Env::new()))));
 
-    let testBin : Expr = Expr::Binop{
-                    op: String::from("+"),
-                    l: Box::new(Expr::Num(100),),
-                    r: Box::new(Expr::Num(5)),};
+    let test_bin : Expr = Expr::Binop{
+        op: String::from("+"),
+        l: Box::new(Expr::Num(100),),
+        r: Box::new(Expr::Num(5)),};
 
-    println!("{}", serialize(interp(testBin, &(Env::new()))));
+    println!("{}", serialize(interp(test_bin, &(Env::new()))));
 }
