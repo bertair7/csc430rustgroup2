@@ -53,31 +53,26 @@ fn sample_ast() {
 
 
 
-fn eval_binop(op: String, l: Value, r: Value) -> Value {
+fn eval_binop(op: String, l: Value, r: Value) -> Result<Value, &'static str> {
 
-    let left =     
-        match l {
-            Value::Num(n) => n,
-            _ => 99999,
-        };
+    if op == "equal?" {
+        return Ok(Value::Bool(l == r));
+    }
 
-    let right =     
-        match r {
-            Value::Num(n) => n,
-            _ => 99999,
-        };
+    let (left, right) = match (l, r) {
+        (Value::Num(ln), Value::Num(rn)) => (ln, rn),
+        _ => return Err("Math operands must be numbers"),
+    };
 
-    // do something with the 99999 error
-
-    match op.as_ref() {
+    Ok(match op.as_ref() {
         "+" => Value::Num(left + right),
         "-" => Value::Num(left - right),
         "/" => Value::Num(left / right),
         "*" => Value::Num(left * right),
         "<=" => Value::Bool(left <= right),
         //not implemented
-        _ => Value::Num(-1),
-    }
+        _ => return Err("Binop not implemented"),
+    })
 }
 
 // Interpret a UIRE expression
@@ -87,7 +82,7 @@ fn interp(exp: Expr, env: &Env) -> Result<Value, &'static str> {
         Expr::Bool(b) => Ok(Value::Bool(b)),
         //Expr::Float(f) => Value::Float(f),
         Expr::Binop{op,l,r} =>
-            Ok(eval_binop(op, try!(interp(*l, env)), try!(interp(*r, env)))),
+            eval_binop(op, try!(interp(*l, env)), try!(interp(*r, env))),
         Expr::If{c,t,f} => match try!(interp(*c, env)) {
             Value::Bool(true) => interp(*t, env),
             Value::Bool(false) => interp(*f, env),
