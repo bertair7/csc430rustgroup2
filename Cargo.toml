@@ -2,3 +2,6 @@
 name = "uire"
 version = "0.1.0"
 license = "MIT"
+
+[dependencies]
+sexp = "1.1.4"
