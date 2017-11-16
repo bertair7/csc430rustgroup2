@@ -1,4 +1,6 @@
-# csc430rustgroup2
+# UIRE in Rust
+
+> Rust interpreter for UIRE, as part of Cal Poly's CSC 430
 
 To run the code:
 

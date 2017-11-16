@@ -3,9 +3,12 @@ use std::clone::Clone;
 extern crate sexp;
 use sexp::Sexp;
 use sexp::Atom;
+use std::result::Result;
 
 
-#[derive(PartialEq, Debug)]
+type Env = HashMap<String, Value>;
+
+#[derive(PartialEq, Debug, Clone)]
 enum Expr {
     Bool(bool),
     Num(i64),
@@ -21,10 +24,8 @@ enum Expr {
 enum Value {
     Bool(bool),
     Num(i64),
-    //Float(f64),
+    Closure { params: Vec<String>, body: Expr, env: Env },
 }
-
-type Env = HashMap<String, Value>;
 
 #[test]
 fn sample_ast() {
@@ -51,57 +52,72 @@ fn sample_ast() {
         }),
         args: vec!(Expr::Num(4)),
     };
+    assert_eq!(interp(prog, &Env::new()), Value::Bool(true));
 }
 
 
 
-fn evalBinop(op: String, l: Value, r: Value) -> Value {
+fn eval_binop(op: String, l: Value, r: Value) -> Result<Value, &'static str> {
 
-    let left =     
-    match l {
-        Value::Num(n) => n,
-        _ => 99999,
+    if op == "equal?" {
+        return Ok(Value::Bool(l == r));
+    }
+
+    let (left, right) = match (l, r) {
+        (Value::Num(ln), Value::Num(rn)) => (ln, rn),
+        _ => return Err("Math operands must be numbers"),
     };
 
-    let right =     
-    match r {
-        Value::Num(n) => n,
-        _ => 99999,
-    };
-
-    // do something with the 99999 error
-
-    match op.as_ref() {
+    Ok(match op.as_ref() {
         "+" => Value::Num(left + right),
         "-" => Value::Num(left - right),
         "/" => Value::Num(left / right),
         "*" => Value::Num(left * right),
         "<=" => Value::Bool(left <= right),
         //not implemented
-        _ => Value::Num(-1),
-    }
+        _ => return Err("Binop not implemented"),
+    })
 }
 
-// Extend environment with addition
-// fn extend-env(env: &Env, s: &String, v: Value) -> &Env {
-//     // TODO
-// }
 
 // Interpret a UIRE expression
-fn interp(exp: Expr, env: &Env) -> Value {
+fn interp(exp: Expr, env: &Env) -> Result<Value, &'static str> {
     match exp {
-        Expr::Num(n) => Value::Num(n),
-        Expr::Bool(b) => Value::Bool(b),
+        Expr::Num(n) => Ok(Value::Num(n)),
+        Expr::Bool(b) => Ok(Value::Bool(b)),
         //Expr::Float(f) => Value::Float(f),
-        Expr::Binop{op,l,r} => evalBinop(op, (interp (*l, env)), (interp (*r, env))),
-        Expr::If{c,t,f} => if interp(*c, env) == Value::Bool(true) { interp(*t, env)} else {interp(*f, env)},
-  	Expr::Varref{name} => match env.get(&name) {
-		Some(val) => (*val).clone(),
-		None => Value::Num(-1),
-		}
-        // TODO - Fundef, App
+        Expr::Binop{op,l,r} =>
+            eval_binop(op, try!(interp(*l, env)), try!(interp(*r, env))),
+        Expr::If{c,t,f} => match try!(interp(*c, env)) {
+            Value::Bool(true) => interp(*t, env),
+            Value::Bool(false) => interp(*f, env),
+            _ => Err("If conditions must be booleans"),
+        },
+        Expr::Varref{name} => match env.get(&name) {
+            Some(val) => Ok((*val).clone()),
+            None => Err("Undefined variable reference"),
+        },
 
-        _ => Value::Num(-1),
+        Expr::Fundef{params, body} => Ok(Value::Closure {
+            params: params,
+            body: (*body).clone(),
+            env: env.clone(),
+        }),
+        Expr::App{fun, args} => match try!(interp(*fun, env)) {
+            Value::Closure {params, body, env: c_env} => {
+                if args.len() != params.len() {
+                    return Err("Incorrect number of arguments");
+                }
+                let mut new_env = c_env.clone();
+                for i in 0..args.len() {
+                    new_env.insert(params[i].clone(),
+                                   try!(interp(args[i].clone(), env)));
+                }
+                interp(body, &new_env)
+            },
+            _ => Err("Tried to call a non-function as a function"),
+        },
+
     }
 }
 
@@ -120,19 +136,19 @@ fn my_parse(s : Sexp) -> Expr {
                 // implement checking for invalid symbols
                 any => Expr::Varref{
                         name: String::from(any)},
-            }
-        //just testing
-        Sexp::List(lis) => 
-            match *(lis.get(0).unwrap()) {
-                Sexp::Atom(Atom::S(first)) => 
-                    match first.as_ref() {
-                        "if" => Expr::Bool(true),
-                        _ => Expr::Bool(false),
+            },
+        //this doesnt work
+        // Sexp::List(lis) => 
+        //     match *(lis.get(0).unwrap()) {
+        //         Sexp::Atom(Atom::S(first)) => 
+        //             match first.as_ref() {
+        //                 "if" => Expr::Bool(true),
+        //                 _ => Expr::Bool(false),
 
-                    }
+        //             }
 
-                _ => Expr::Bool(false),
-            }, 
+        //         _ => Expr::Bool(false),
+        //     }, 
         _ => Expr::Num(-1),
     }
     //println!("{}", sexp::parse("(+ 1 2)").unwrap());
@@ -159,6 +175,7 @@ fn test_prims() {
 
 #[test]
 fn test_parse() {
+    // assert_eq!(interp(Expr::Float(3.14)), Value::Float(3.14));
 
     assert_eq!(parse_wrapper("(+ 1 2)".to_string()),  Sexp::List(vec![Sexp::Atom(Atom::S("+".into())), Sexp::Atom(Atom::I(1)), Sexp::Atom(Atom::I(2))]));
 
@@ -171,72 +188,77 @@ fn test_parse() {
 }
 
 
-fn serialize(val: Value) -> String {
+fn serialize(val: Result<Value, &'static str>) -> String {
     match val {
-        Value::Num(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-      //  Value::Float(f) => f.to_string(),
+        Ok(Value::Num(n)) => n.to_string(),
+        Ok(Value::Bool(b)) => b.to_string(),
+        Ok(_) => String::from("#<procedure>"),
+        Err(err) => format!("UIRE: {}", err),
     }
 }
 
 //#[test]
 fn test_serialize() {
-  //   assert_eq!(serialize(Value::Num(-7)), "-7");
-  // //  assert_eq!(serialize(Value::Float(1.1)), "1.1");
-  //   assert_eq!(serialize(Value::Bool(true)), "true");
-  //   assert_eq!(serialize(Value::Bool(false)), "false");
-  //   assert_eq!(serialize(interp(Expr::Binop{
-  //                   op: String::from("*"),
-  //                   l: Box::new(Expr::Num(20),),
-  //                   r: Box::new(Expr::Num(5)), }), &(Env::new())), "00");
-  //   assert_eq!(serialize(interp(Expr::Binop{
-  //                   op: String::from("+"),
-  //                   l: Box::new(Expr::Num(11),),
-  //                   r: Box::new(Expr::Num(7)),}), &(Env::new())), "18");
+   // assert_eq!(serialize(Value::Num(-7)), "-7");
+    //  assert_eq!(serialize(Value::Float(1.1)), "1.1");
+    //assert_eq!(serialize(Value::Bool(true)), "true");
+    //assert_eq!(serialize(Value::Bool(false)), "false");
+    assert_eq!(serialize(interp(Expr::Binop{
+        op: String::from("*"),
+        l: Box::new(Expr::Num(20),),
+        r: Box::new(Expr::Num(5)), }, &(Env::new()))), "100");
+    assert_eq!(serialize(interp(Expr::Binop{
+        op: String::from("+"),
+        l: Box::new(Expr::Num(11),),
+        r: Box::new(Expr::Num(7)),}, &(Env::new()))), "18");
 
-  //   assert_eq!(serialize(interp(Expr::Binop{
-  //                   op: String::from("-"),
-  //                   l: Box::new(Expr::Num(11),),
-  //                   r: Box::new(Expr::Binop{
-  //                       op: String::from("/"),
-  //                       l: Box::new(Expr::Num(20),),
-  //                       r: Box::new(Expr::Num(4)),}),}, &(Env::new()))), "6");
+    assert_eq!(serialize(interp(Expr::Binop{
+        op: String::from("-"),
+        l: Box::new(Expr::Num(11),),
+        r: Box::new(Expr::Binop{
+            op: String::from("/"),
+            l: Box::new(Expr::Num(20),),
+            r: Box::new(Expr::Num(4)),}),}, &(Env::new()))), "6");
 
-  //    assert_eq!(serialize(interp(Expr::Binop{
-  //                   op: String::from("<="),
-  //                   l: Box::new(Expr::Num(200),),
-  //                   r: Box::new(Expr::Num(10)),}, &(Env::new()))), "false");
+    assert_eq!(serialize(interp(Expr::Binop{
+        op: String::from("<="),
+        l: Box::new(Expr::Num(200),),
+        r: Box::new(Expr::Num(10)),}, &(Env::new()))), "false");
 
-  //   assert_eq!(serialize(interp(Expr::If{
-  //                   c: Box::new(Expr::Binop{
-  //                       op: String::from("<="),
-  //                       l: Box::new(Expr::Num(200),),
-  //                       r: Box::new(Expr::Num(10)),}),
-  //                   t: Box::new(Expr::Num(200),),
-  //                   f: Box::new(Expr::Num(10)),}, &(Env::new()))), "10");
+    assert_eq!(serialize(interp(Expr::If{
+        c: Box::new(Expr::Binop{
+            op: String::from("<="),
+            l: Box::new(Expr::Num(200),),
+            r: Box::new(Expr::Num(10)),}),
+            t: Box::new(Expr::Num(200),),
+            f: Box::new(Expr::Num(10)),}, &(Env::new()))), "10");
 
-  //   assert_eq!(serialize(interp(Expr::If{
-  //                   c: Box::new(Expr::Binop{
-  //                       op: String::from("<="),
-  //                       l: Box::new(Expr::Num(10),),
-  //                       r: Box::new(Expr::Num(100)),}),
-  //                   t: Box::new(Expr::Binop{
-  //                       op: String::from("/"),
-  //                       l: Box::new(Expr::Num(20),),
-  //                       r: Box::new(Expr::Num(4)),},),
-  //                   f: Box::new(Expr::Num(10)),}, &(Env::new()))), "5");
-
+    assert_eq!(serialize(interp(Expr::If{
+        c: Box::new(Expr::Binop{
+            op: String::from("<="),
+            l: Box::new(Expr::Num(10),),
+            r: Box::new(Expr::Num(100)),}),
+            t: Box::new(Expr::Binop{
+                op: String::from("/"),
+                l: Box::new(Expr::Num(20),),
+                r: Box::new(Expr::Num(4)),},),
+                f: Box::new(Expr::Num(10)),}, &(Env::new()))), "5");
 }
 
 
 fn main() {
     println!("{}", serialize(interp(Expr::Num(5), &(Env::new()))));
 
-    let testBin : Expr = Expr::Binop{
-                    op: String::from("+"),
-                    l: Box::new(Expr::Num(100),),
-                    r: Box::new(Expr::Num(5)),};
+    let test_bin : Expr = Expr::Binop{
+        op: String::from("+"),
+        l: Box::new(Expr::Num(100),),
+        r: Box::new(Expr::Num(5)),};
 
-    println!("{}", serialize(interp(testBin, &(Env::new()))));
-   // my_parse();
+    println!("{}", serialize(interp(test_bin, &(Env::new()))));
+
+
+    println!("{}", serialize(interp(Expr::Varref {
+        name: String::from("x"),
+    }, &Env::new())))
+
 }
